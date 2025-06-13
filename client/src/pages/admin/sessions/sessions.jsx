@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Table,
-  Space,
   Button,
   Modal,
   Tag,
@@ -16,7 +15,7 @@ import {
   DatePicker,
   TimePicker,
   Divider,
-  Badge,
+  Avatar
 } from "antd";
 import {
   CalendarOutlined,
@@ -26,13 +25,13 @@ import {
   BookOutlined,
   EyeOutlined,
   UserSwitchOutlined,
-  CloseCircleOutlined,
   ClockCircleOutlined,
   LinkOutlined,
   TeamOutlined,
   SearchOutlined,
   FilterOutlined,
   CodeOutlined,
+  UserOutlined
 } from "@ant-design/icons";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -57,7 +56,6 @@ const SUBJECTS = [
   "Agriculture and Applied Sciences",
 ];
 
-// Subject code mapping
 const subjectCodeMap = {
   Sinhala: "ARTSI-0001",
   Geography: "ARTGE-0002",
@@ -73,8 +71,16 @@ const subjectCodeMap = {
   "Agriculture and Applied Sciences": "TECHAAS-0004",
 };
 
+const COLORS = {
+  success: "#52c41a",
+  warning: "#faad14",
+  danger: "#f5222d",
+  cancelled: "#d9d9d9"
+};
+
 export default function Sessions() {
   const [sessions, setSessions] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -87,57 +93,50 @@ export default function Sessions() {
   const userRole = localStorage.getItem("role");
   const userId = localStorage.getItem("id");
   const token = localStorage.getItem("token");
-  console.log(token);
-  console.table({ ...localStorage });
-
-  console.log("User ID:", userId);
-  console.log("User Role:", userRole);
-
-  // Color scheme
-  const primaryColor = "#4f46e5"; // Indigo 600
-  const secondaryColor = "#0ea5e9"; // Sky 500
-  const successColor = "#10b981"; // Emerald 500
-  const dangerColor = "#ef4444"; // Red 500
-  const warningColor = "#f59e0b"; // Amber 500
-  const neutralColor = "#6b7280"; // Gray 500
 
   const handleSubjectChange = (value) => {
-    // Set the subject code based on the selected subject
-    form.setFieldsValue({ code: subjectCodeMap[value] || "" });
+    form.setFieldsValue({
+      code: subjectCodeMap[value] || ""
+    });
   };
 
   const handleEditSubjectChange = (value) => {
-    // Set the subject code based on the selected subject in edit form
-    editForm.setFieldsValue({ code: subjectCodeMap[value] || "" });
+    editForm.setFieldsValue({
+      code: subjectCodeMap[value] || ""
+    });
+  };
+
+  const handleAddSession = () => {
+    setIsAddSessionModalOpen(true);
   };
 
   useEffect(() => {
-    // Redirect if user is not teacher or admin
     if (!["teacher", "admin"].includes(userRole)) {
       navigate("/unauthorized");
       return;
     }
     fetchSessions();
+    fetchEnrollments();
   }, []);
 
   const fetchSessions = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
       if (!token) {
         throw new Error("No authentication token found");
       }
 
       const endpoint =
         userRole === "teacher"
-          ? `http://localhost:5080/api/sessions/teacher/me`
-          : "http://localhost:5080/api/sessions";
+          ? `${import.meta.env.VITE_BACKEND_URL}/api/sessions/teacher/me?populate=enrolledStudents`
+          : `${import.meta.env.VITE_BACKEND_URL}/api/sessions?populate=enrolledStudents`;
 
       const { data } = await axios.get(endpoint, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
+      console.log("Fetched sessions:", data); // Debug: Check session data
       setSessions(data);
     } catch (error) {
       console.error("Error fetching sessions:", error);
@@ -146,6 +145,125 @@ export default function Sessions() {
         localStorage.removeItem("token");
         navigate("/login");
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchEnrollments = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/enrollments`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log("Fetched enrollments:", data); // Debug: Check enrollment data
+      setEnrollments(data);
+    } catch (error) {
+      console.error("Error fetching enrollments:", error);
+    }
+  };
+
+  const getEnrollmentCount = (session) => {
+    if (!session) return 0;
+    
+    const sessionDate = dayjs(session.date);
+    const sessionMonth = sessionDate.month() + 1;
+    const sessionYear = sessionDate.year();
+    
+    const count = enrollments.filter(enrollment => 
+      enrollment.subject === session.subject && 
+      enrollment.month === sessionMonth &&
+      enrollment.year === sessionYear &&
+      enrollment.status === 'approved'
+    ).length;
+    console.log(`Enrollment count for ${session.subject}:`, count); // Debug: Check count
+    return count;
+  };
+
+  const showModal = (session) => {
+    console.log("Selected session:", session); // Debug: Check selected session
+    setSelectedSession(session);
+    setIsModalOpen(true);
+  };
+
+  const formatTimeWithAMPM = (timeString) => {
+    if (!timeString) return "N/A";
+    const time = dayjs(timeString, "HH:mm:ss");
+    return time.format("h:mm A");
+  };
+
+  const onAddSessionFinish = async (values) => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      
+      const sessionData = {
+        ...values,
+        date: values.date.format("YYYY-MM-DD"),
+        startTime: values.startTime.format("HH:mm:ss"),
+        endTime: values.endTime.format("HH:mm:ss"),
+        isCancelled: values.isCancelled === "true"
+      };
+
+      await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/sessions`, sessionData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      toast.success("Session created successfully");
+      setIsAddSessionModalOpen(false);
+      form.resetFields();
+      fetchSessions();
+    } catch (error) {
+      console.error("Error creating session:", error);
+      toast.error(error.response?.data?.message || "Failed to create session");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditSession = (session) => {
+    setEditingSession(session);
+    editForm.setFieldsValue({
+      ...session,
+      date: dayjs(session.date),
+      startTime: dayjs(session.startTime, "HH:mm:ss"),
+      endTime: dayjs(session.endTime, "HH:mm:ss"),
+      isCancelled: session.isCancelled ? "true" : "false"
+    });
+    setIsEditSessionModalOpen(true);
+  };
+
+  const onEditSessionFinish = async (values) => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      
+      const sessionData = {
+        ...values,
+        date: values.date.format("YYYY-MM-DD"),
+        startTime: values.startTime.format("HH:mm:ss"),
+        endTime: values.endTime.format("HH:mm:ss"),
+        isCancelled: values.isCancelled === "true"
+      };
+
+      await axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/sessions/${editingSession._id}`, sessionData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      toast.success("Session updated successfully");
+      setIsEditSessionModalOpen(false);
+      editForm.resetFields();
+      setEditingSession(null);
+      fetchSessions();
+    } catch (error) {
+      console.error("Error updating session:", error);
+      toast.error(error.response?.data?.message || "Failed to update session");
     } finally {
       setLoading(false);
     }
@@ -172,7 +290,7 @@ export default function Sessions() {
         try {
           setLoading(true);
           const token = localStorage.getItem("token");
-          await axios.delete(`http://localhost:5080/api/sessions/${id}`, {
+          await axios.delete(`${import.meta.env.VITE_BACKEND_URL}/api/sessions/${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -187,123 +305,6 @@ export default function Sessions() {
         }
       },
     });
-  };
-
-  const showModal = (session) => {
-    setSelectedSession(session);
-    setIsModalOpen(true);
-  };
-
-  const handleAddSession = () => {
-    setIsAddSessionModalOpen(true);
-  };
-
-  const handleEditSession = (session) => {
-    setEditingSession(session);
-    editForm.setFieldsValue({
-      subject: session.subject,
-      code: subjectCodeMap[session.subject] || "", // Auto-fill subject code
-      description: session.description,
-      date: session.date ? dayjs(session.date) : null,
-      startTime: session.startTime ? dayjs(session.startTime, "HH:mm") : null,
-      endTime: session.endTime ? dayjs(session.endTime, "HH:mm") : null,
-      maxStudents: session.maxStudents,
-      link: session.link,
-      isCancelled: session.isCancelled ? "true" : "false",
-    });
-    setIsEditSessionModalOpen(true);
-  };
-
-  const onAddSessionFinish = async (values) => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem("token");
-      if (!token) {
-        throw new Error("No authentication token found");
-      }
-
-      const response = await axios.post(
-        "http://localhost:5080/api/sessions",
-        {
-          ...values,
-          date: values.date ? values.date.format("YYYY-MM-DD") : undefined,
-          startTime: values.startTime ? values.startTime.format("HH:mm") : undefined,
-          endTime: values.endTime ? values.endTime.format("HH:mm") : undefined,
-          isCancelled: values.isCancelled === "true",
-          teacher: userId, // Automatically assign the current teacher
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (response.status === 201) {
-        toast.success("Session added successfully");
-        setIsAddSessionModalOpen(false);
-        form.resetFields();
-        fetchSessions();
-      }
-    } catch (error) {
-      console.error("Error adding session:", error);
-      const errorMessage =
-        error.response?.data?.message ||
-        error.response?.data?.error ||
-        "Failed to add session. Please check all fields and try again.";
-      message.error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onEditSessionFinish = async (values) => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem("token");
-      if (!token) {
-        throw new Error("No authentication token found");
-      }
-
-      const updateData = {
-        ...values,
-        date: values.date ? values.date.format("YYYY-MM-DD") : undefined,
-        startTime: values.startTime ? values.startTime.format("HH:mm") : undefined,
-        endTime: values.endTime ? values.endTime.format("HH:mm") : undefined,
-        isCancelled: values.isCancelled === "true",
-      };
-
-      await axios.put(
-        `http://localhost:5080/api/sessions/${editingSession._id}`,
-        updateData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      toast.success("Session updated successfully");
-      setIsEditSessionModalOpen(false);
-      editForm.resetFields();
-      setEditingSession(null);
-      fetchSessions();
-    } catch (error) {
-      console.error("Error updating session:", error);
-      message.error(error.response?.data?.message || "Failed to update session");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatTimeWithAMPM = (timeString) => {
-    if (!timeString) return "";
-    const [hours, minutes] = timeString.split(":");
-    const hour = parseInt(hours, 10);
-    const ampm = hour >= 12 ? "P.M." : "A.M.";
-    const hour12 = hour % 12 || 12;
-    return `${hour12}:${minutes} ${ampm}`;
   };
 
   const columns = [
@@ -360,13 +361,13 @@ export default function Sessions() {
       key: "capacity",
       align: "center",
       render: (_, record) => {
-        const enrolled = record.enrolledStudents?.length || 0;
+        const enrolled = getEnrollmentCount(record);
         const max = record.maxStudents || 0;
         const percentage = max > 0 ? (enrolled / max) * 100 : 0;
-        let statusColor = successColor;
+        let statusColor = COLORS.success;
 
-        if (percentage >= 90) statusColor = dangerColor;
-        else if (percentage >= 70) statusColor = warningColor;
+        if (percentage >= 90) statusColor = COLORS.danger;
+        else if (percentage >= 70) statusColor = COLORS.warning;
 
         return (
           <div className="capacity-cell">
@@ -435,6 +436,36 @@ export default function Sessions() {
       ),
     },
   ];
+
+  const renderEnrolledStudents = (students) => {
+    if (!students || students.length === 0) {
+      return null; // Remove "No students enrolled yet" message
+    }
+
+    return (
+      <Select
+        mode="multiple"
+        style={{ width: '100%' }}
+        placeholder="Select to view enrolled students"
+        defaultValue={students.map(student => student._id)}
+        optionLabelProp="label"
+      >
+        {students.map((student) => (
+          <Option 
+            key={student._id} 
+            value={student._id}
+            label={`${student.firstName} ${student.lastName}`}
+          >
+            <div className="student-option">
+              <Avatar icon={<UserOutlined />} className="student-avatar" />
+              <span className="student-name">{student.firstName} {student.lastName}</span>
+              <span className="student-email">{student.email}</span>
+            </div>
+          </Option>
+        ))}
+      </Select>
+    );
+  };
 
   const renderAddSessionModal = () => (
     <Modal
@@ -604,187 +635,215 @@ export default function Sessions() {
     </Modal>
   );
 
-  const renderEditSessionModal = () => (
-    <Modal
-      title={null}
-      open={isEditSessionModalOpen}
-      onCancel={() => {
-        setIsEditSessionModalOpen(false);
-        editForm.resetFields();
-        setEditingSession(null);
-      }}
-      footer={null}
-      width={640}
-      centered
-      className="edit-session-modal"
-      closeIcon={<div className="modal-close-icon">×</div>}
-    >
-      <div className="modal-custom-header edit">
-        <div className="modal-icon-container edit">
-          <EditOutlined className="modal-icon" />
-        </div>
-        <div className="modal-title">Edit Session</div>
-        <div className="modal-subtitle">Update session information</div>
+ const renderEditSessionModal = () => (
+  <Modal
+    title={null}
+    open={isEditSessionModalOpen}
+    onCancel={() => {
+      setIsEditSessionModalOpen(false);
+      editForm.resetFields();
+      setEditingSession(null);
+    }}
+    footer={null}
+    width={640}
+    centered
+    className="edit-session-modal"
+    closeIcon={<div className="modal-close-icon">×</div>}
+  >
+    <div className="modal-custom-header edit">
+      <div className="modal-icon-container edit">
+        <EditOutlined className="modal-icon" />
       </div>
+      <div className="modal-title">Edit Session</div>
+      <div className="modal-subtitle">Update session information</div>
+    </div>
 
-      <div className="modal-body">
-        <Form form={editForm} layout="vertical" onFinish={onEditSessionFinish}>
-          <div className="form-section">
-            <div className="section-title">Session Information</div>
-            <Form.Item
-              name="subject"
-              label="Subject"
-              rules={[{ required: true, message: "Please select subject!" }]}
+    <div className="modal-body">
+      <Form form={editForm} layout="vertical" onFinish={onEditSessionFinish}>
+        <div className="form-section">
+          <div className="section-title">Session Information</div>
+          <Form.Item
+            name="subject"
+            label="Subject"
+            rules={[{ required: true, message: "Please select subject!" }]}
+          >
+            <Select
+              placeholder="Select session subject"
+              className="form-select"
+              showSearch
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+              onChange={handleEditSubjectChange}
             >
+              {SUBJECTS.map((subject) => (
+                <Option key={subject} value={subject}>
+                  {subject}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="code" label="Subject Code">
+            <Input
+              prefix={<CodeOutlined />}
+              placeholder="Auto-filled subject code"
+              className="form-input"
+              readOnly
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="Description"
+            rules={[{ required: true, message: "Please input description!" }]}
+          >
+            <Input.TextArea
+              placeholder="Enter session description"
+              className="form-input"
+              autoSize={{ minRows: 3, maxRows: 6 }}
+            />
+          </Form.Item>
+        </div>
+
+        <div className="form-section">
+          <div className="section-title">Schedule</div>
+          <Form.Item
+            name="date"
+            label="Date"
+            rules={[{ required: true, message: "Please select date!" }]}
+          >
+            <DatePicker
+              className="form-input"
+              style={{ width: "100%" }}
+              format="YYYY-MM-DD"
+              disabledDate={(current) => current && current < dayjs().startOf("day")}
+            />
+          </Form.Item>
+
+          <div className="form-row">
+            <Form.Item
+              name="startTime"
+              label="Start Time"
+              rules={[{ required: true, message: "Please select start time!" }]}
+              className="form-item"
+            >
+              <TimePicker
+                className="form-input"
+                style={{ width: "100%" }}
+                format="h:mm A"
+                use12Hours
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="endTime"
+              label="End Time"
+              rules={[{ required: true, message: "Please select end time!" }]}
+              className="form-item"
+            >
+              <TimePicker
+                className="form-input"
+                style={{ width: "100%" }}
+                format="h:mm A"
+                use12Hours
+              />
+            </Form.Item>
+          </div>
+        </div>
+
+        <div className="form-section">
+          <div className="section-title">Additional Details</div>
+          <div className="form-row">
+            <Form.Item
+              name="maxStudents"
+              label="Max Students"
+              rules={[{ required: true, message: "Please input maximum students!" }]}
+              className="form-item"
+            >
+              <Input
+                type="number"
+                placeholder="Enter max students"
+                className="form-input"
+                min={1}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="isCancelled"
+              label="Status"
+              rules={[{ required: true, message: "Please select status!" }]}
+              className="form-item"
+            >
+              <Select className="form-select">
+                <Option value="false">Active</Option>
+                <Option value="true">Cancelled</Option>
+              </Select>
+            </Form.Item>
+          </div>
+
+          <Form.Item name="link" label="Session Link">
+            <Input
+              prefix={<LinkOutlined />}
+              placeholder="Enter session link (optional)"
+              className="form-input"
+            />
+          </Form.Item>
+          
+          {/* Add Enrolled Students section */}
+          {editingSession?.enrolledStudents?.length > 0 && (
+            <Form.Item label="Enrolled Students">
               <Select
-                placeholder="Select session subject"
-                className="form-select"
-                showSearch
-                optionFilterProp="children"
-                filterOption={(input, option) =>
-                  option.children.toLowerCase().includes(input.toLowerCase())
-                }
-                onChange={handleEditSubjectChange}
+                mode="multiple"
+                style={{ width: '100%' }}
+                placeholder="Enrolled students"
+                defaultValue={editingSession.enrolledStudents.map(student => student._id)}
+                optionLabelProp="label"
+                disabled
               >
-                {SUBJECTS.map((subject) => (
-                  <Option key={subject} value={subject}>
-                    {subject}
+                {editingSession.enrolledStudents.map((student) => (
+                  <Option 
+                    key={student._id} 
+                    value={student._id}
+                    label={`${student.firstName} ${student.lastName}`}
+                  >
+                    <div className="student-option">
+                      <Avatar icon={<UserOutlined />} className="student-avatar" />
+                      <span className="student-name">{student.firstName} {student.lastName}</span>
+                      <span className="student-email">{student.email}</span>
+                    </div>
                   </Option>
                 ))}
               </Select>
             </Form.Item>
+          )}
+        </div>
 
-            <Form.Item name="code" label="Subject Code">
-              <Input
-                prefix={<CodeOutlined />}
-                placeholder="Auto-filled subject code"
-                className="form-input"
-                readOnly
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="description"
-              label="Description"
-              rules={[{ required: true, message: "Please input description!" }]}
-            >
-              <Input.TextArea
-                placeholder="Enter session description"
-                className="form-input"
-                autoSize={{ minRows: 3, maxRows: 6 }}
-              />
-            </Form.Item>
-          </div>
-
-          <div className="form-section">
-            <div className="section-title">Schedule</div>
-            <Form.Item
-              name="date"
-              label="Date"
-              rules={[{ required: true, message: "Please select date!" }]}
-            >
-              <DatePicker
-                className="form-input"
-                style={{ width: "100%" }}
-                format="YYYY-MM-DD"
-                disabledDate={(current) => current && current < dayjs().startOf("day")}
-              />
-            </Form.Item>
-
-            <div className="form-row">
-              <Form.Item
-                name="startTime"
-                label="Start Time"
-                rules={[{ required: true, message: "Please select start time!" }]}
-                className="form-item"
-              >
-                <TimePicker
-                  className="form-input"
-                  style={{ width: "100%" }}
-                  format="h:mm A"
-                  use12Hours
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="endTime"
-                label="End Time"
-                rules={[{ required: true, message: "Please select end time!" }]}
-                className="form-item"
-              >
-                <TimePicker
-                  className="form-input"
-                  style={{ width: "100%" }}
-                  format="h:mm A"
-                  use12Hours
-                />
-              </Form.Item>
-            </div>
-          </div>
-
-          <div className="form-section">
-            <div className="section-title">Additional Details</div>
-            <div className="form-row">
-              <Form.Item
-                name="maxStudents"
-                label="Max Students"
-                rules={[{ required: true, message: "Please input maximum students!" }]}
-                className="form-item"
-              >
-                <Input
-                  type="number"
-                  placeholder="Enter max students"
-                  className="form-input"
-                  min={1}
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="isCancelled"
-                label="Status"
-                rules={[{ required: true, message: "Please select status!" }]}
-                className="form-item"
-              >
-                <Select className="form-select">
-                  <Option value="false">Active</Option>
-                  <Option value="true">Cancelled</Option>
-                </Select>
-              </Form.Item>
-            </div>
-
-            <Form.Item name="link" label="Session Link">
-              <Input
-                prefix={<LinkOutlined />}
-                placeholder="Enter session link (optional)"
-                className="form-input"
-              />
-            </Form.Item>
-          </div>
-
-          <div className="form-actions">
-            <Button
-              onClick={() => {
-                setIsEditSessionModalOpen(false);
-                editForm.resetFields();
-                setEditingSession(null);
-              }}
-              className="cancel-button"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="primary"
-              loading={loading}
-              onClick={() => editForm.submit()}
-              className="submit-button edit"
-            >
-              Update Session
-            </Button>
-          </div>
-        </Form>
-      </div>
-    </Modal>
-  );
+        <div className="form-actions">
+          <Button
+            onClick={() => {
+              setIsEditSessionModalOpen(false);
+              editForm.resetFields();
+              setEditingSession(null);
+            }}
+            className="cancel-button"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={loading}
+            onClick={() => editForm.submit()}
+            className="submit-button edit"
+          >
+            Update Session
+          </Button>
+        </div>
+      </Form>
+    </div>
+  </Modal>
+);
 
   return (
     <div className="sessions-page-container">
@@ -836,7 +895,7 @@ export default function Sessions() {
                 pageSize: 10,
                 showSizeChanger: true,
                 pageSizeOptions: ["10", "20", "50"],
-                className: "custom-pagination",
+                className:"custom-pagination",
               }}
               className="sessions-table"
               rowClassName={(record) => `table-row ${record.isCancelled ? "cancelled-row" : ""}`}
@@ -845,7 +904,6 @@ export default function Sessions() {
         </Card>
       </div>
 
-      {/* Session Details Modal */}
       <Modal
         title={null}
         open={isModalOpen}
@@ -954,7 +1012,7 @@ export default function Sessions() {
                     <Text className="info-label">Students Enrolled</Text>
                     <div className="capacity-indicator">
                       <Text strong className="info-value">
-                        {selectedSession.enrolledStudents?.length || 0}/{selectedSession.maxStudents || "N/A"}
+                        {getEnrollmentCount(selectedSession)}/{selectedSession.maxStudents || "N/A"}
                       </Text>
                       <div className="capacity-bar-container modal">
                         <div
@@ -962,14 +1020,25 @@ export default function Sessions() {
                           style={{
                             width: `${
                               selectedSession.maxStudents
-                                ? (selectedSession.enrolledStudents?.length / selectedSession.maxStudents) * 100
+                                ? (getEnrollmentCount(selectedSession) / selectedSession.maxStudents) * 100
                                 : 0
                             }%`,
+                            backgroundColor: selectedSession.maxStudents && 
+                              (getEnrollmentCount(selectedSession) / selectedSession.maxStudents) >= 0.9 
+                              ? COLORS.danger 
+                              : (getEnrollmentCount(selectedSession) / selectedSession.maxStudents) >= 0.7 
+                                ? COLORS.warning 
+                                : COLORS.success
                           }}
                         ></div>
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div className="enrolled-students-container">
+                  <div className="section-subtitle">Enrolled Students</div>
+                  {renderEnrolledStudents(selectedSession.enrolledStudents)}
                 </div>
               </div>
 
@@ -1003,10 +1072,7 @@ export default function Sessions() {
         )}
       </Modal>
 
-      {/* Add Session Modal */}
       {renderAddSessionModal()}
-
-      {/* Edit Session Modal */}
       {renderEditSessionModal()}
     </div>
   );
