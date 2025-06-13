@@ -209,40 +209,42 @@ export default function EnrollPage() {
           onClose: () => navigate("/home"),
         }
       )
-    } catch (error) {
-      console.error("Enrollment error:", error)
+   } catch (error) {
+  console.error("Enrollment error:", error);
 
-      let errorMessage = "Failed to submit enrollment. Please try again."
+  let errorMessage = "Failed to submit enrollment. Please try again.";
 
-      if (error.response) {
-        if (error.response.status === 400) {
-          errorMessage = error.response.data.message || "Invalid enrollment data"
-        } else if (error.response.status === 403) {
-          errorMessage = "Access denied. Please check your permissions."
-        } else if (error.response.status === 401) {
-          errorMessage = "Session expired. Please login again."
-        }
-      }
+  if (error.response) {
+    if (error.response.status === 400) {
+      errorMessage = error.response.data.message || "Invalid enrollment data";
+    } else if (error.response.status === 403) {
+      errorMessage = "Access denied. Please check your permissions.";
+    } else if (error.response.status === 401) {
+      errorMessage = "Session expired. Please login again.";
+    } else if (error.response.status === 500) {
+      errorMessage = "Server error. Please try again later.";
+    }
+  }
 
-      toast.error(
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="font-bold text-red-800">Enrollment Failed</div>
-            <div className="text-sm text-red-700">{errorMessage}</div>
-          </div>
-        </div>,
-        {
-          position: "top-center",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          className: "!bg-white !text-red-800 !shadow-lg !border !border-red-200 !rounded-xl",
-        }
-      )
-    } finally {
+  toast.error(
+    <div className="flex items-start gap-3">
+      <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5 flex-shrink-0" />
+      <div>
+        <div className="font-bold text-red-800">Enrollment Failed</div>
+        <div className="text-sm text-red-700">{errorMessage}</div>
+      </div>
+    </div>,
+    {
+      position: "top-center",
+      autoClose: 5000,
+      hideProgressBar: false,
+      closeOnClick: true,
+      pauseOnHover: true,
+      draggable: true,
+      className: "!bg-white !text-red-800 !shadow-lg !border !border-red-200 !rounded-xl",
+    }
+  );
+} finally {
       setIsLoading(false)
       setUploadProgress(0)
     }

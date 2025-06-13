@@ -24,7 +24,24 @@ export const createEnrollment = async (req, res) => {
       });
     }
 
-    // Create enrollment
+    // Check for existing enrollment for same subject/month/year
+    const existingEnrollment = await Enrollment.findOne({
+      user: userId,
+      subject,
+      month: parseInt(month),
+      year: parseInt(year),
+      status: { $ne: 'rejected' } // Only check non-rejected enrollments
+    });
+
+    if (existingEnrollment) {
+      return res.status(400).json({
+        message: existingEnrollment.status === 'pending' 
+          ? "You already have a pending enrollment for this subject and period"
+          : "You're already enrolled in this subject for the selected period"
+      });
+    }
+
+    // Rest of your existing code...
     const enrollment = new Enrollment({
       user: userId,
       message,
@@ -34,7 +51,6 @@ export const createEnrollment = async (req, res) => {
       imageUrl
     });
 
-    // Save with proper error handling
     await enrollment.save();
 
     return res.status(201).json({
@@ -43,9 +59,9 @@ export const createEnrollment = async (req, res) => {
     });
 
   } catch (error) {
-    // console.error('Enrollment error:', error.message);
+    console.error('Enrollment error:', error.message);
     
-    // Handle specific error types
+    // More specific error handling
     if (error.message.includes('Cannot enroll for past months')) {
       return res.status(400).json({ 
         message: error.message 
